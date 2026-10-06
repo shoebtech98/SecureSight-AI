@@ -1,0 +1,26 @@
+# SecureSight AI — backend runtime dependencies.
+# Pinned to the versions currently installed in venv/. Install from the repository root with:
+#   python -m venv venv
+#   venv/Scripts/pip install -r backend/requirements.txt   (Windows)
+#   venv/bin/pip install -r backend/requirements.txt        (macOS/Linux)
+
+# Web framework & server
+fastapi==0.139.0
+uvicorn==0.51.0
+python-dotenv==1.2.4
+python-multipart==0.0.32     # required for file uploads (UploadFile / form data)
+
+# Data layer
+SQLAlchemy==2.0.51
+psycopg[binary]>=3.2,<4
+
+# Validation / schemas
+pydantic==2.13.4
+email-validator==2.3.0       # backs pydantic EmailStr
+
+# Auth
+python-jose==3.5.0           # JWT (HS256)
+bcrypt==5.0.0                # password hashing
+
+# Reporting
+reportlab==5.0.0             # PDF generation

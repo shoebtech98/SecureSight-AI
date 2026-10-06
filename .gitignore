@@ -1,0 +1,34 @@
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── Virtual environment ──────────────────────────────────
+venv/
+.venv/
+
+# ── Databases (contain real user data — never commit) ────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Environment / secrets ────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Node / frontend build output ─────────────────────────
+node_modules/
+frontend/dist/
+
+# ── Logs & local scratch ─────────────────────────────────
+*.log
+.freebuff/
+.claude/
+
+# ── OS / editor cruft ────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

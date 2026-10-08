@@ -11,7 +11,6 @@ The frontend is a React + Vite single-page application.
 - `src/layouts/` — authenticated dashboard shell, navigation, search, notifications, and logout.
 - `src/services/api.js` — Axios client, JWT handling, and unauthorized-session handling.
 - `src/utils/datetime.js` — shared UTC timestamp formatting.
-- `src/assets/` — static frontend assets.
 - `public/` — static public files.
 
 ## Development

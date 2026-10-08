@@ -14,7 +14,7 @@ The conversational assistant uses Gemini with bounded, user-scoped SIEM aggregat
   - `backend/tests/` — unittest audit suite and performance harness.
   - `backend/requirements.txt` — backend dependencies.
   - `backend/README.md` — backend-specific documentation.
-- `data/samples/` — demonstration SSH and Nginx logs.
+- `data/samples/` — demonstration SSH and Nginx logs; both are allowed by `.gitignore` for future commits.
 - `database/` — SQLite and Supabase PostgreSQL documentation.
 - `docs/` — architecture, API, and historical project documentation.
 - `scripts/` — repository verification script.
@@ -92,4 +92,4 @@ Together they produce authentication failures, a brute-force correlation, SQL in
 - `frontend/README.md`
 - `database/README.md`
 - `data/README.md`
-- `docs/project/audit-report.md` — historical audit artifact; some paths predate this reorganization.
+- `docs/archive/audit-report-2026-08-12.md` — historical audit artifact; it does not describe the current implementation.

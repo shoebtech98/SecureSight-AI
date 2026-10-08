@@ -1,5 +1,9 @@
 # SecureSight AI — End-to-End Technical Audit Report
 
+> Historical snapshot from 2026-08-12. Several findings and file paths below are
+> outdated. Use the current root README, architecture notes, and API documentation
+> for the present project structure and behavior.
+
 Date: 2026-08-12
 
 ## Scope

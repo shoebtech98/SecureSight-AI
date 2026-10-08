@@ -24,6 +24,8 @@ frontend/dist/
 
 # ── Logs & local scratch ─────────────────────────────────
 *.log
+!data/samples/ssh_auth.log
+!data/samples/nginx_access.log
 .freebuff/
 .claude/
 

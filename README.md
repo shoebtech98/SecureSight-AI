@@ -8,7 +8,7 @@
 
 Upload logs, investigate detections, triage incidents, and create reports from one dashboard.
 
-[Get started](#quick-start) · [Architecture](#architecture) · [Features](#what-it-does) · [Documentation](#documentation)
+[Get started](#quick-start) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Documentation](#documentation)
 
 </div>
 
@@ -25,25 +25,29 @@ Upload logs, investigate detections, triage incidents, and create reports from o
 | Reporting | View security posture and incident response summaries; export the posture PDF or alert CSV, or print the incident response view to PDF. |
 | Accounts | Sign in, manage a profile, and recover a password with a one-time recovery code. |
 
+## Screenshots
+
+**Security overview** — metrics and activity shown here come from an uploaded log file; values change with the data.
+
+![SecureSight AI dashboard with event metrics and activity timeline](docs/screenshots/dashboard.png)
+
+<details>
+<summary><strong>Explore the full interface</strong> · 11 more screens</summary>
+
+| Access and account recovery | Investigation workspace |
+| --- | --- |
+| **Login**<br><img src="docs/screenshots/login.png" alt="SecureSight AI login page" width="100%"> | **Upload logs**<br><img src="docs/screenshots/upload-logs.png" alt="Upload logs page" width="100%"> |
+| **Signup**<br><img src="docs/screenshots/signup.png" alt="SecureSight AI signup page" width="100%"> | **Event Explorer**<br><img src="docs/screenshots/event-explorer.png" alt="Searchable event table and filters" width="100%"> |
+| **Account recovery**<br><img src="docs/screenshots/account-recovery.png" alt="Account recovery form" width="100%"> | **Threat Monitor**<br><img src="docs/screenshots/threat-monitor.png" alt="Incident list in Threat Monitor" width="100%"> |
+| **Settings**<br><img src="docs/screenshots/settings.png" alt="Account settings and profile" width="100%"> | **Incident details**<br><img src="docs/screenshots/threat-monitor-incident.png" alt="Threat Monitor incident details drawer" width="100%"> |
+| **AI Assistant**<br><img src="docs/screenshots/ai-assistant.png" alt="AI security assistant conversation" width="100%"> | **Security posture report**<br><img src="docs/screenshots/security-reports.png" alt="Security posture report" width="100%"> |
+| **Incident response report**<br><img src="docs/screenshots/incident-response.png" alt="Incident response log report" width="100%"> | |
+
+</details>
+
 ## Architecture
 
-```mermaid
-flowchart LR
-    U[Analyst] --> F[React + Vite UI]
-    F -->|/api requests| A[FastAPI]
-    A --> AUTH[Authentication]
-    A --> INGEST[Upload and parse]
-    INGEST --> NORM[Normalize events]
-    NORM --> DETECT[Rules and correlation]
-    DETECT --> DB[(SQLite or Supabase PostgreSQL)]
-    AUTH --> DB
-    DB --> VIEWS[Dashboard, events, alerts, reports]
-    DB --> CONTEXT[Bounded SIEM aggregates]
-    CONTEXT --> GEMINI[Gemini API]
-    VIEWS --> A
-    GEMINI --> A
-    A --> F
-```
+![SecureSight AI architecture from analyst to interface, API, detection, storage, reports, and Gemini](docs/architecture/flow.svg)
 
 The operational path is **sign in → upload → parse → normalize → detect → store → investigate → triage → report**. The backend owns authentication, detection, persistence, Gemini calls, and exports. The frontend provides the analyst workspace. SQLite supports local development; Supabase PostgreSQL is available for hosted storage.
 

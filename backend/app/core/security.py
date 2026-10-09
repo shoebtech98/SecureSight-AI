@@ -67,7 +67,10 @@ def _normalize_security_answer(answer: str) -> str:
 
 
 def hash_security_answer(answer: str) -> str:
-    return get_password_hash(_normalize_security_answer(answer))
+    normalized = _normalize_security_answer(answer)
+    if not normalized:
+        raise ValueError("Recovery answer cannot be blank")
+    return get_password_hash(normalized)
 
 
 def security_answer_is_hashed(stored: Optional[str]) -> bool:
@@ -78,6 +81,8 @@ def verify_security_answer(answer: str, stored: Optional[str]) -> bool:
     if not stored:
         return False
     normalized = _normalize_security_answer(answer)
+    if not normalized:
+        return False
     if security_answer_is_hashed(stored):
         try:
             return bcrypt.checkpw(normalized.encode("utf-8"), stored.encode("utf-8"))
@@ -92,11 +97,16 @@ def verify_security_answer(answer: str, stored: Optional[str]) -> bool:
 # exist, so /reset-password latency can't be used to tell which emails are
 # registered. The wrapped value is irrelevant — it is never a real answer.
 _DUMMY_SECURITY_ANSWER_HASH = get_password_hash("securesight-nonexistent-account-timing-guard")
+_DUMMY_PASSWORD_HASH = get_password_hash("securesight-nonexistent-login-timing-guard")
 
 
 def dummy_verify_security_answer(answer: str) -> None:
     """Run a throwaway verification so a missing account costs the same time."""
     verify_security_answer(answer, _DUMMY_SECURITY_ANSWER_HASH)
+
+
+def dummy_verify_password(password: str) -> None:
+    verify_password(password, _DUMMY_PASSWORD_HASH)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()

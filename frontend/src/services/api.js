@@ -29,7 +29,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear token and redirect to login if session expires
+      const requestAuthorization = error.config?.headers?.Authorization;
+      const currentToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+      // A late 401 from an older session must not sign out a newer login.
+      if (requestAuthorization !== `Bearer ${currentToken}` || !currentToken) {
+        return Promise.reject(error);
+      }
       localStorage.removeItem('token');
       sessionStorage.removeItem('token');
       // If we are not already on the login/register/forgot-password pages, we redirect to login

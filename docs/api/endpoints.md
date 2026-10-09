@@ -4,13 +4,14 @@ All application routes below require a Bearer JWT unless marked public. The fron
 
 ## Authentication
 
-- `POST /api/auth/register` — public; creates a user.
+- `POST /api/auth/register` — public; creates a user and returns a one-time recovery code to save securely.
 - `POST /api/auth/login` — public; returns an access token.
 - `POST /api/auth/refresh` — returns a replacement access token.
-- `POST /api/auth/forgot-password` — public; returns the account recovery question.
-- `POST /api/auth/reset-password` — public; resets a password after verifying the recovery answer.
+- `POST /api/auth/forgot-password` — public; returns the same recovery instructions for every address.
+- `POST /api/auth/reset-password` — public; accepts `email`, `recovery_code`, and `new_password`; consumes the code and revokes older sessions.
+- `POST /api/auth/recovery-code` — requires a session and current password; returns a replacement code once and a fresh access token.
 - `GET /api/auth/me` — returns the current user.
-- `PUT /api/auth/me` — updates profile and credentials; sensitive changes require the current password.
+- `PUT /api/auth/me` — updates profile and credentials; sensitive changes require the current password, revoke older sessions, and return a fresh token.
 
 ## Logs and events
 

@@ -266,7 +266,9 @@ def parse_log_content(content: str) -> List[Dict[str, Any]]:
             ips = _extract_ips(line)
             dst_port = re.search(r'(?:dest_port|dport|dpt)[=: ](\d+)', line, re.I)
             if not dst_port:
-                arrow_port = re.search(r"->\s*[^:]+:(\d+)", line)
+                # Restrict the destination token so a sequence of unmatched
+                # arrows cannot repeatedly scan the remainder of the line.
+                arrow_port = re.search(r"->\s*(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9_.-]+):(\d{1,5})\b", line)
                 dst_port = arrow_port
             event.update(
                 source_ip=ips[0] if ips else None,

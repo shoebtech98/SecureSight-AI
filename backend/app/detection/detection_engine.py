@@ -19,9 +19,26 @@ from backend.app.detection.risk_scoring import score_detection
 # "union select" signature still requires the two tokens to be adjacent — no new
 # false positives). Both the haystack AND every indicator pass through the same
 # normalizer, so existing multi-token signatures like "/bin/sh -c" keep matching.
-_SQL_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _WHITESPACE_RE = re.compile(r"\s+")
 _WHITESPACE_AROUND_PUNCT_RE = re.compile(r"\s*([^\w\s])\s*")
+
+
+def _strip_sql_comments(text: str) -> str:
+    """Remove complete block comments with a forward-only scan."""
+    parts = []
+    position = 0
+    while True:
+        start = text.find("/*", position)
+        if start < 0:
+            parts.append(text[position:])
+            break
+        end = text.find("*/", start + 2)
+        if end < 0:
+            parts.append(text[position:])
+            break
+        parts.extend((text[position:start], " "))
+        position = end + 2
+    return "".join(parts)
 
 
 def _recursive_unquote(text: str, max_passes: int = 3) -> str:
@@ -36,7 +53,7 @@ def _recursive_unquote(text: str, max_passes: int = 3) -> str:
 
 def normalize_payload(text: str) -> str:
     text = _recursive_unquote(text).lower()
-    text = _SQL_COMMENT_RE.sub(" ", text)
+    text = _strip_sql_comments(text)
     text = text.replace("\\", "/")
     text = _WHITESPACE_RE.sub(" ", text)
     text = _WHITESPACE_AROUND_PUNCT_RE.sub(r"\1", text)

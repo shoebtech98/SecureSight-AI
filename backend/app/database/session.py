@@ -1,5 +1,6 @@
 import os
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from .base import Base
@@ -16,10 +17,24 @@ is_postgres = DATABASE_URL.startswith("postgresql+psycopg://")
 if not (is_sqlite or is_postgres):
     raise ValueError("DATABASE_URL must be a SQLite or PostgreSQL connection URL.")
 
+connect_args = {"check_same_thread": False} if is_sqlite else {}
+if is_postgres:
+    connection_options = make_url(DATABASE_URL).query
+    ssl_mode = connection_options.get("sslmode") or os.getenv("DB_SSLMODE", "require")
+    if ssl_mode not in {"require", "verify-ca", "verify-full"}:
+        raise ValueError("PostgreSQL SSL mode must require encryption.")
+    if os.getenv("ENV", "development").strip().lower() not in {"dev", "development", "local", "test"} and ssl_mode != "verify-full":
+        raise RuntimeError("Production PostgreSQL connections require sslmode=verify-full and the Supabase CA certificate.")
+    # URL-specified settings win. Do not downgrade verify-full to require.
+    if "sslmode" not in connection_options:
+        connect_args["sslmode"] = ssl_mode
+    if "sslrootcert" not in connection_options and os.getenv("DB_SSLROOTCERT"):
+        connect_args["sslrootcert"] = os.environ["DB_SSLROOTCERT"]
+
 # connect_args={"check_same_thread": False} is required only for SQLite
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if is_sqlite else {"sslmode": "require"},
+    connect_args=connect_args,
     **({"pool_pre_ping": True, "pool_size": 3, "max_overflow": 2} if is_postgres else {}),
 )
 
@@ -29,6 +44,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def ensure_schema():
     """Add legacy SIEM columns and indexes on SQLite and PostgreSQL."""
     additions = {
+        "users": {
+            "recovery_code_hash": "VARCHAR", "session_version": "INTEGER NOT NULL DEFAULT 0"
+        },
         "log_events": {
             "source_ip": "VARCHAR", "destination_ip": "VARCHAR", "hostname": "VARCHAR", "port": "INTEGER",
             "destination_port": "INTEGER", "protocol": "VARCHAR", "username": "VARCHAR", "event_type": "VARCHAR",

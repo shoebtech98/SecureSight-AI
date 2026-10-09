@@ -1,6 +1,7 @@
 import logging
+from bisect import bisect_left, bisect_right
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/logs", tags=["Logs Ingestion"])
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_RECORD_CHARS = 256 * 1024
 ALLOWED_EXTENSIONS = {".log", ".txt", ".csv", ".json"}
 
 
@@ -82,6 +84,18 @@ def _cross_file_detections(db: Session, user_id: int, events: list[dict], curren
          "log_file_id": row.log_file_id}
         for row in old_rows
     ]
+    by_source = {}
+    by_username = {}
+    for old in old_events:
+        if old["source_ip"]:
+            by_source.setdefault(old["source_ip"], []).append(old)
+        if old["username"]:
+            by_username.setdefault(old["username"], []).append(old)
+    for groups in (by_source, by_username):
+        for identity, group in groups.items():
+            group.sort(key=lambda event: event["timestamp"])
+            groups[identity] = ([event["timestamp"] for event in group], group)
+
     correlator = CorrelationEngine()
     old_keys = {(item["rule"], item.get("source_ip"), item.get("username"))
                 for item in correlator.correlate(old_events)}
@@ -99,7 +113,18 @@ def _cross_file_detections(db: Session, user_id: int, events: list[dict], curren
             [item["evidence"]], "T1110" if item["rule"] == "repeated_failed_login" else "T1046",
             "Investigate the correlated activity and preserve the source events.", item,
         )
-        detection["source_file_ids"] = sorted({old["log_file_id"] for old in old_events
+        if item["rule"] == "suspicious_authentication":
+            times, candidates = by_username.get(item.get("username"), ([], []))
+            window = timedelta(minutes=10)
+        else:
+            times, candidates = by_source.get(item.get("source_ip"), ([], []))
+            window = timedelta(minutes={"port_scan": 2, "repeated_failed_login": 5}.get(item["rule"], 10))
+        trigger_time = event.get("timestamp")
+        if trigger_time is None:
+            continue
+        start = bisect_left(times, trigger_time - window)
+        end = bisect_right(times, trigger_time + window)
+        detection["source_file_ids"] = sorted({old["log_file_id"] for old in candidates[start:end]
                                                 if _contributes_to_correlation(old, item, event)})
         if not detection["source_file_ids"]:
             continue
@@ -117,6 +142,8 @@ def upload_log_file(
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                             detail="Unsupported log format. Use .log, .txt, .csv, or .json files.")
+    if len(filename) > 255 or any(ord(char) < 32 or ord(char) == 127 for char in filename):
+        raise HTTPException(status_code=400, detail="Invalid log filename.")
 
     # Read file content
     try:
@@ -128,6 +155,8 @@ def upload_log_file(
             raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                                 detail="Log files must be 25 MB or smaller.")
         text_content = contents.decode("utf-8", errors="ignore")
+        if any(len(line) > MAX_RECORD_CHARS for line in text_content.splitlines()):
+            raise HTTPException(status_code=413, detail="A log record exceeds the 256 KB limit.")
     except HTTPException:
         raise
     except Exception:
@@ -227,7 +256,7 @@ def upload_log_file(
         db.refresh(db_file)
     except Exception:
         db.rollback()
-        logger.exception("[Upload] Failed to parse log file %s", filename)
+        logger.exception("[Upload] Failed to parse log file %r", filename)
 
         db_file = db.query(LogFile).filter(LogFile.id == db_file.id).first()
         if db_file:
@@ -255,7 +284,15 @@ def delete_log_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    db_file = db.query(LogFile).filter(LogFile.id == file_id, LogFile.user_id == current_user.id).first()
+    user_id = current_user.id
+    if db.bind.dialect.name == "sqlite":
+        # The auth lookup has already used this session. End its read
+        # transaction, then take the SQLite write lock before the owner check.
+        db.rollback()
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+    db_file = (db.query(LogFile)
+               .filter(LogFile.id == file_id, LogFile.user_id == user_id)
+               .with_for_update().first())
     if not db_file:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -273,7 +310,10 @@ def delete_log_file(
         db.query(CrossFileAlertSource).filter(CrossFileAlertSource.alert_id.in_(alert_ids)).delete(synchronize_session=False)
         db.query(ThreatAlert).filter(ThreatAlert.id.in_(alert_ids)).delete(synchronize_session=False)
     db.query(LogEvent).filter(LogEvent.log_file_id == file_id).delete(synchronize_session=False)
-    db.query(LogFile).filter(LogFile.id == file_id).delete(synchronize_session=False)
+    deleted = db.query(LogFile).filter(LogFile.id == file_id, LogFile.user_id == user_id).delete(synchronize_session=False)
+    if deleted != 1:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Log file not found or unauthorized")
     db.commit()
     return {"message": "Log file and all associated events deleted successfully"}
 
@@ -283,9 +323,9 @@ def search_log_events(
     service: Optional[str] = None,
     ip_address: Optional[str] = None,
     classification: Optional[str] = None,
-    search: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    search: Optional[str] = Query(default=None, max_length=256),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -301,13 +341,14 @@ def search_log_events(
     if classification:
         query = query.filter(LogEvent.classification == classification)
     if search:
-        search_pattern = f"%{search}%"
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f"%{escaped}%"
         query = query.filter(
-            (LogEvent.message.like(search_pattern)) |
-            (LogEvent.path.like(search_pattern)) |
-            (LogEvent.source_ip.like(search_pattern)) |
-            (LogEvent.username.like(search_pattern)) |
-            (LogEvent.service.like(search_pattern))
+            (LogEvent.message.like(search_pattern, escape="\\")) |
+            (LogEvent.path.like(search_pattern, escape="\\")) |
+            (LogEvent.source_ip.like(search_pattern, escape="\\")) |
+            (LogEvent.username.like(search_pattern, escape="\\")) |
+            (LogEvent.service.like(search_pattern, escape="\\"))
         )
 
 

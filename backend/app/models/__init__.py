@@ -12,11 +12,17 @@ class User(Base):
     full_name = Column(String, nullable=False)
     security_question = Column(String, nullable=False)
     security_answer = Column(String, nullable=False)  # bcrypt hash of the normalized answer (legacy rows may be plaintext)
+    recovery_code_hash = Column(String, nullable=True)
+    session_version = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
     log_files = relationship("LogFile", back_populates="user", cascade="all, delete-orphan")
     ai_conversations = relationship("AiConversation", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def has_recovery_code(self) -> bool:
+        return bool(self.recovery_code_hash)
 
 class LogFile(Base):
     __tablename__ = "log_files"

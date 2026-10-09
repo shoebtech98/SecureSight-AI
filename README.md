@@ -40,7 +40,7 @@ Set `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, and `SECRET_KEY` in the ba
 Run the backend:
 
 ```powershell
-venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 ## Frontend setup
@@ -53,6 +53,8 @@ npm run dev
 ```
 
 The Vite development server runs on `http://127.0.0.1:5173` and proxies `/api/*` to `http://127.0.0.1:8000`.
+
+Registration displays a one-time recovery code. Save it outside this project: it is required to reset a forgotten password. Existing accounts can generate a code from **Profile** while signed in. Password resets and credential changes end older sessions.
 
 ## Verification
 
@@ -72,7 +74,7 @@ Backend tests can also be run directly:
 
 ```powershell
 $env:DATABASE_URL="sqlite:///./test_run.db"
-venv\Scripts\python.exe -W error::DeprecationWarning -m unittest backend.tests.test_audit_suite
+venv\Scripts\python.exe -W error::DeprecationWarning -m unittest backend.tests.test_audit_suite backend.tests.test_security_regressions
 ```
 
 ## Demonstration data

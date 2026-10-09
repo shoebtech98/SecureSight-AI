@@ -35,16 +35,28 @@ class UserBase(BaseModel):
     security_question: str
 
 class UserCreate(UserBase):
+    security_question: str = ""
     password: str = Field(min_length=8)
-    security_answer: str = Field(min_length=1, max_length=256)
+    security_answer: Optional[str] = Field(default=None, max_length=256)
 
     _validate_password = field_validator("password")(validate_password_strength)
+
+    @field_validator("security_answer")
+    @classmethod
+    def validate_legacy_answer(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("Recovery answer cannot be blank")
+        return value
 
 class UserResponse(UserBase):
     id: int
     created_at: datetime
+    has_recovery_code: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+class UserRegistrationResponse(UserResponse):
+    recovery_code: str
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -55,10 +67,17 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
-    security_answer: str = Field(min_length=1, max_length=256)
+    recovery_code: str = Field(min_length=32, max_length=128)
     new_password: str = Field(min_length=8)
 
     _validate_password = field_validator("new_password")(validate_password_strength)
+
+class RecoveryCodeRotateRequest(BaseModel):
+    current_password: str
+
+class RecoveryCodeRotateResponse(BaseModel):
+    recovery_code: str
+    access_token: str
 
 class Token(BaseModel):
     access_token: str
@@ -77,8 +96,15 @@ class UserUpdate(BaseModel):
 
     _validate_password = field_validator("password")(validate_password_strength)
 
+    @field_validator("security_answer")
+    @classmethod
+    def validate_legacy_answer(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("Recovery answer cannot be blank")
+        return value
+
 class UserUpdateResponse(UserResponse):
-    """Profile update response; carries a fresh access token when the email changed."""
+    """Profile update response; carries a fresh token after sensitive changes."""
     access_token: Optional[str] = None
 
 from typing import List, Dict, Any

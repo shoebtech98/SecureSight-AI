@@ -5,18 +5,19 @@ from backend.app.database import get_db
 from backend.app.models import User
 from backend.app.core.rate_limit import rate_limit
 from backend.app.schemas import (
-    UserCreate, UserResponse, UserLogin, Token,
-    ForgotPasswordRequest, ResetPasswordRequest, UserUpdate, UserUpdateResponse
+    UserCreate, UserResponse, UserRegistrationResponse, UserLogin, Token,
+    ForgotPasswordRequest, ResetPasswordRequest, UserUpdate, UserUpdateResponse,
+    RecoveryCodeRotateRequest, RecoveryCodeRotateResponse,
 )
 from backend.app.core.security import (
     get_password_hash, verify_password, create_access_token,
     decode_access_token, REMEMBER_ME_ACCESS_TOKEN_EXPIRE_MINUTES,
     DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES,
-    hash_security_answer, verify_security_answer,
-    security_answer_is_hashed, dummy_verify_security_answer,
+    hash_security_answer, dummy_verify_password,
 )
 from datetime import timedelta
 import logging
+import secrets
 
 # Module-level logger — output appears in the uvicorn terminal
 logger = logging.getLogger(__name__)
@@ -39,18 +40,27 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
     if payload is None:
         raise credentials_exception
         
-    email: str = payload.get("sub")
-    if email is None:
+    subject = payload.get("sub")
+    version = payload.get("sv")
+    # Legacy email-subject tokens are rejected. An email can be reassigned to
+    # another account, whereas a numeric user ID cannot.
+    if not isinstance(subject, str) or not subject.isdecimal() or not isinstance(version, int):
         raise credentials_exception
-        
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
+
+    user = db.query(User).filter(User.id == int(subject)).first()
+    if user is None or user.session_version != version:
         raise credentials_exception
     return user
 
+
+def _user_token(user: User, expires: timedelta | None = None) -> str:
+    return create_access_token(
+        data={"sub": str(user.id), "sv": user.session_version}, expires_delta=expires
+    )
+
 @router.post(
     "/register",
-    response_model=UserResponse,
+    response_model=UserRegistrationResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(rate_limit("register", 10, 60))],
 )
@@ -88,12 +98,14 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         )
 
     # ── Step 3: Build User model ───────────────────────────────────────
+    recovery_code = secrets.token_urlsafe(32)
     new_user = User(
         email=user_in.email,
         full_name=user_in.full_name,
         hashed_password=hashed_password,
         security_question=user_in.security_question,
-        security_answer=hash_security_answer(user_in.security_answer),
+        security_answer=hash_security_answer(user_in.security_answer) if user_in.security_answer else "",
+        recovery_code_hash=get_password_hash(recovery_code),
     )
 
     # ── Step 4: Persist to database ────────────────────────────────────
@@ -113,7 +125,12 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
             detail="Database error while creating the account. Please try again."
         )
 
-    return new_user
+    return {
+        "id": new_user.id, "email": new_user.email, "full_name": new_user.full_name,
+        "security_question": new_user.security_question,
+        "created_at": new_user.created_at, "has_recovery_code": True,
+        "recovery_code": recovery_code,
+    }
 
 
 @router.post(
@@ -123,6 +140,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 )
 def login(user_in: UserLogin, remember_me: bool = False, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == user_in.email).first()
+    if not user:
+        dummy_verify_password(user_in.password)
     if not user or not verify_password(user_in.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -136,56 +155,69 @@ def login(user_in: UserLogin, remember_me: bool = False, db: Session = Depends(g
     else:
         expires = timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
         
-    access_token = create_access_token(data={"sub": user.email}, expires_delta=expires)
+    access_token = _user_token(user, expires)
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/refresh", response_model=Token)
 def refresh_token(current_user: User = Depends(get_current_user)):
     expires = timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(data={"sub": current_user.email}, expires_delta=expires)
+    access_token = _user_token(current_user, expires)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/forgot-password", dependencies=[Depends(rate_limit("forgot_password", 5, 60))])
-def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User with this email does not exist"
-        )
-    return {"email": user.email, "security_question": user.security_question}
+def forgot_password(req: ForgotPasswordRequest):
+    # The same response for every address avoids publishing account membership.
+    return {"message": "If this account exists, use its saved recovery code to reset the password."}
 
 @router.post("/reset-password", dependencies=[Depends(rate_limit("reset_password", 5, 60))])
 def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
-
-    # One generic failure for both "no such account" and "wrong answer" so this
-    # endpoint can't be used to enumerate which emails are registered.
     invalid = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Invalid email or security answer",
+        detail="Invalid email or recovery code",
     )
-    if not user:
-        # Spend the same work as the real path so a missing account doesn't
-        # return noticeably faster (timing-based enumeration).
-        dummy_verify_security_answer(req.security_answer)
+    if not user or not user.recovery_code_hash:
+        dummy_verify_password(req.recovery_code)
         raise invalid
-
-    if not verify_security_answer(req.security_answer, user.security_answer):
+    code_hash = user.recovery_code_hash
+    if not verify_password(req.recovery_code.strip(), code_hash):
         raise invalid
-
-    # Answer confirmed: reset the password, and upgrade a legacy plaintext
-    # answer to a bcrypt hash now that we've seen the correct value.
-    user.hashed_password = get_password_hash(req.new_password)
-    if not security_answer_is_hashed(user.security_answer):
-        user.security_answer = hash_security_answer(req.security_answer)
+    # A conditional update consumes the code exactly once, including when two
+    # reset requests race. It also invalidates every previously issued token.
+    updated = db.query(User).filter(
+        User.id == user.id, User.recovery_code_hash == code_hash
+    ).update({
+        User.hashed_password: get_password_hash(req.new_password),
+        User.recovery_code_hash: None,
+        User.session_version: User.session_version + 1,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise invalid
     db.commit()
     return {"message": "Password reset successful"}
+
+
+@router.post("/recovery-code", response_model=RecoveryCodeRotateResponse)
+def rotate_recovery_code(
+    payload: RecoveryCodeRotateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    code = secrets.token_urlsafe(32)
+    current_user.recovery_code_hash = get_password_hash(code)
+    current_user.session_version += 1
+    db.commit()
+    db.refresh(current_user)
+    return {"recovery_code": code, "access_token": _user_token(current_user)}
 
 @router.get("/me", response_model=UserResponse)
 def read_current_user(current_user: User = Depends(get_current_user)):
     return current_user
+
 
 @router.put("/me", response_model=UserUpdateResponse)
 def update_profile(profile_in: UserUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -233,14 +265,13 @@ def update_profile(profile_in: UserUpdate, current_user: User = Depends(get_curr
     if security_answer_changed:
         current_user.security_answer = hash_security_answer(profile_in.security_answer)
 
+    if sensitive_change:
+        current_user.session_version += 1
+
     db.commit()
     db.refresh(current_user)
 
-    # JWTs carry the email in `sub`; re-issue a token so an email change does
-    # not silently invalidate the current session on the next request.
-    access_token = None
-    if email_changed:
-        access_token = create_access_token(data={"sub": current_user.email})
+    access_token = _user_token(current_user) if sensitive_change else None
 
     return {
         "id": current_user.id,
@@ -248,5 +279,6 @@ def update_profile(profile_in: UserUpdate, current_user: User = Depends(get_curr
         "full_name": current_user.full_name,
         "security_question": current_user.security_question,
         "created_at": current_user.created_at,
+        "has_recovery_code": current_user.has_recovery_code,
         "access_token": access_token,
     }

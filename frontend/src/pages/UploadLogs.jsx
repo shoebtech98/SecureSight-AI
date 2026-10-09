@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, File, Trash2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { File, Trash2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import Button from '../components/Button';
 import Alert from '../components/Alert';
 import { formatUtcDateTime } from '../utils/datetime';
+import UploadFolder from '../components/UploadFolder';
 
 const UploadLogs = () => {
   const [dragActive, setDragActive] = useState(false);
@@ -127,7 +128,7 @@ const UploadLogs = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="upload-page space-y-6 max-w-6xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Upload Logs</h1>
         <p className="text-sm text-slate-9000 mt-1">
@@ -164,9 +165,7 @@ const UploadLogs = () => {
                 onChange={handleFileChange}
               />
               
-              <div className="p-4 bg-slate-50 rounded-full text-slate-9000 border border-slate-200/80 mb-4">
-                <Upload size={28} className={dragActive ? 'text-primary animate-bounce' : 'text-slate-9000'} />
-              </div>
+              <UploadFolder />
               
               {file ? (
                 <div className="space-y-1">
@@ -260,6 +259,7 @@ const UploadLogs = () => {
               </div>
             </li>
           </ul>
+          <p className="event-data-note mt-5">Source IPs and event timestamps are read from uploaded records when present and recognized. Missing values are not generated.</p>
         </div>
       </div>
 

@@ -35,6 +35,8 @@ class SecureSightAuditTestSuite(unittest.TestCase):
         })
         self.assertEqual(reg_resp.status_code, 201)
         self.assertIn("id", reg_resp.json())
+        self.assertGreaterEqual(len(reg_resp.json()["recovery_code"]), 32)
+        self.__class__.recovery_code = reg_resp.json()["recovery_code"]
 
         # 2. Login
         login_resp = self.client.post("/api/auth/login", json={
@@ -90,7 +92,7 @@ class SecureSightAuditTestSuite(unittest.TestCase):
         # 9. Reset endpoint rejects a policy-violating new password
         weak_reset = self.client.post("/api/auth/reset-password", json={
             "email": self.test_email,
-            "security_answer": "securesight ai",
+            "recovery_code": self.recovery_code,
             "new_password": "newpass1"
         })
         self.assertEqual(weak_reset.status_code, 422)
@@ -530,10 +532,13 @@ class SecureSightAuditTestSuite(unittest.TestCase):
         r3 = self.client.put("/api/auth/me", headers=self.headers,
                              json={"full_name": "Renamed Analyst"})
         self.assertEqual(r3.status_code, 200)
-        # Correct current password -> a security-answer change succeeds
+        # Correct current password -> a security-answer change succeeds,
+        # invalidating older tokens and returning a replacement.
         r4 = self.client.put("/api/auth/me", headers=self.headers,
                              json={"security_answer": "new answer", "current_password": self.test_password})
         self.assertEqual(r4.status_code, 200)
+        self.assertEqual(self.client.get("/api/auth/me", headers=self.headers).status_code, 401)
+        self.__class__.headers = {"Authorization": f"Bearer {r4.json()['access_token']}"}
 
     def test_09_email_change_reissues_token(self):
         new_email = f"renamed_{int(utc_now().timestamp())}@securesight.ai"

@@ -11,7 +11,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-BACKEND_TEST_MODULES = ["backend.tests.test_audit_suite", "backend.tests.test_gemini"]
+BACKEND_TEST_MODULES = [
+    "backend.tests.test_audit_suite",
+    "backend.tests.test_gemini",
+    "backend.tests.test_security_regressions",
+]
 FRONTEND_DIR = ROOT / "frontend"
 
 

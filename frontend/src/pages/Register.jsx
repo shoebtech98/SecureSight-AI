@@ -1,18 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Check, Eye, EyeOff, HelpCircle, LockKeyhole, Mail, UserRound } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, Mail, UserRound } from 'lucide-react';
 import api from '../services/api';
 import Input from '../components/Input';
 import Button from '../components/Button';
 import AuthShell from '../components/AuthShell';
 
-const SECURITY_QUESTIONS = [
-  "What is your mother's maiden name?",
-  'What was the name of your first pet?',
-  'What was the name of your first school?',
-  'In what city were you born?',
-  'What is the brand of your first car?',
-];
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordRules = [
   { label: '8 or more characters', test: (value) => value.length >= 8 },
@@ -27,8 +20,7 @@ const Register = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [securityQuestion, setSecurityQuestion] = useState(SECURITY_QUESTIONS[0]);
-  const [securityAnswer, setSecurityAnswer] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
@@ -51,11 +43,9 @@ const Register = () => {
     else if (passwordRules.some((rule) => !rule.test(password))) nextErrors.password = 'Meet all password requirements below.';
     if (!confirmPassword) nextErrors.confirmPassword = 'Confirm your password.';
     else if (password !== confirmPassword) nextErrors.confirmPassword = 'Passwords do not match.';
-    if (!securityAnswer.trim()) nextErrors.securityAnswer = 'Enter an answer for account recovery.';
-    else if (securityAnswer.length > 256) nextErrors.securityAnswer = 'Use 256 characters or fewer.';
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
-      const first = ['fullName', 'email', 'password', 'confirmPassword', 'securityAnswer'].find((key) => nextErrors[key]);
+      const first = ['fullName', 'email', 'password', 'confirmPassword'].find((key) => nextErrors[key]);
       document.getElementById(`register-${first}`)?.focus();
       return;
     }
@@ -63,10 +53,10 @@ const Register = () => {
     setErrors({});
     setIsLoading(true);
     try {
-      await api.post('/api/auth/register', {
+      const response = await api.post('/api/auth/register', {
         full_name: fullName.trim(), email: email.trim(), password,
-        security_question: securityQuestion, security_answer: securityAnswer.trim(),
       });
+      setRecoveryCode(response.data.recovery_code);
       setRegistered(true);
     } catch (error) {
       const detail = error.response?.data?.detail;
@@ -83,9 +73,6 @@ const Register = () => {
         } else if (field === 'password') {
           setErrors({ password: 'Meet all password requirements below.' });
           document.getElementById('register-password')?.focus();
-        } else if (field === 'security_answer') {
-          setErrors({ securityAnswer: 'Enter an answer using 256 characters or fewer.' });
-          document.getElementById('register-securityAnswer')?.focus();
         } else {
           setErrors({ form: 'Please review your account details and try again.' });
         }
@@ -104,7 +91,11 @@ const Register = () => {
           <div className="auth-complete-icon"><Check size={30} aria-hidden="true" /></div>
           <span className="auth-eyebrow">ACCOUNT CREATED</span>
           <h1>Your workspace is ready.</h1>
-          <p>Your account has been created. Sign in to start monitoring your security events.</p>
+          <p>Save this one-time recovery code in a safe place. It is shown only now and is required if you forget your password.</p>
+          <div className="w-full rounded-xl border border-slate-300 bg-slate-50 p-4 my-4 text-left">
+            <span className="block text-xs font-semibold text-slate-600 mb-2">Your recovery code</span>
+            <code className="block break-all text-sm text-slate-900 select-all">{recoveryCode}</code>
+          </div>
           <Button onClick={() => navigate('/login')} className="auth-submit">Continue to sign in <ArrowRight size={17} aria-hidden="true" /></Button>
         </div>
       ) : (
@@ -139,17 +130,7 @@ const Register = () => {
               error={errors.confirmPassword} icon={LockKeyhole} required
               rightIcon={showConfirmPassword ? EyeOff : Eye} rightActionLabel={showConfirmPassword ? 'Hide password' : 'Show password'}
               rightActionPressed={showConfirmPassword} onRightIconClick={() => setShowConfirmPassword((current) => !current)} />
-            <div className="auth-recovery">
-              <div className="auth-recovery-heading"><HelpCircle size={17} aria-hidden="true" /><span>Account recovery</span></div>
-              <p>Your answer is used to reset your password if you lose access.</p>
-              <label htmlFor="register-securityQuestion">Security question <span aria-hidden="true">*</span></label>
-              <select id="register-securityQuestion" name="securityQuestion" value={securityQuestion} onChange={(event) => setSecurityQuestion(event.target.value)}>
-                {SECURITY_QUESTIONS.map((question) => <option key={question} value={question}>{question}</option>)}
-              </select>
-              <Input tone="dark" label="Your answer" id="register-securityAnswer" name="securityAnswer" autoComplete="off"
-                placeholder="Enter your answer" value={securityAnswer} onChange={(event) => updateField('securityAnswer', event.target.value, setSecurityAnswer)}
-                error={errors.securityAnswer} required />
-            </div>
+            <p className="text-xs text-slate-500">After registration, save the recovery code shown on the next screen. It replaces security questions.</p>
             <Button type="submit" isLoading={isLoading} className="auth-submit">
               {isLoading ? 'Creating account...' : 'Create account'}{!isLoading && <ArrowRight size={17} aria-hidden="true" />}
             </Button>

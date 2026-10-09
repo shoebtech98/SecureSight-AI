@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, RefreshCw, X, SlidersHorizontal, Terminal, Calendar, User, Activity, AlertOctagon } from 'lucide-react';
+import { Search, RefreshCw, X, SlidersHorizontal, Terminal, Calendar, User, Activity, AlertOctagon, Download } from 'lucide-react';
 import api from '../services/api';
 import Button from '../components/Button';
 import { formatUtcDateTime } from '../utils/datetime';
@@ -17,11 +17,11 @@ const EventExplorer = () => {
   const [service, setService] = useState('');
   const [classification, setClassification] = useState('');
   const [ipAddress, setIpAddress] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
 
   // Pagination
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const limit = 10;
 
   // Selected Log Drawer
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -41,7 +41,8 @@ const EventExplorer = () => {
     }
   }, [searchParams]);
 
-  const getSourceIp = (event) => event?.source_ip || event?.ip_address || event?.src_ip || 'Unavailable';
+  const getSourceIp = (event) => event?.source_ip || event?.ip_address || event?.src_ip || 'Not captured';
+  const getEventTime = (event) => event?.timestamp ? formatUtcDateTime(event.timestamp) : 'Not available';
 
   const fetchEvents = useCallback(async () => {
     const seq = ++requestSeq.current;
@@ -90,6 +91,25 @@ const EventExplorer = () => {
     setPage(1);
   };
 
+  const exportVisibleEvents = () => {
+    const cell = (value) => {
+      const text = String(value ?? '');
+      const safe = /^[\s]*[=+@-]/.test(text) ? `'${text}` : text;
+      return `"${safe.replaceAll('"', '""')}"`;
+    };
+    const rows = [
+      ['Timestamp', 'Level', 'Service', 'Source IP', 'Message', 'Classification'],
+      ...events.map((event) => [event.timestamp ? formatUtcDateTime(event.timestamp) : '', event.level, event.service, event.source_ip || event.ip_address || '', event.message, event.classification]),
+    ];
+    const blob = new Blob([rows.map((row) => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `securesight-events-page-${page}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getLevelBadgeClass = (lvl) => {
     switch (lvl) {
       case 'CRITICAL': return 'bg-red-500/10 text-red-400 border-red-500/20';
@@ -106,9 +126,10 @@ const EventExplorer = () => {
   };
 
   const totalPages = Math.ceil(total / limit);
+  const missingTimestampCount = events.filter((event) => !event.timestamp).length;
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto relative min-h-[80vh]">
+    <div className="event-explorer-page space-y-4 max-w-7xl mx-auto relative min-h-[80vh]">
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -116,6 +137,7 @@ const EventExplorer = () => {
           <p className="text-sm text-slate-9000 mt-1">Audit trail of all parsed log files. Search and filter events in real-time.</p>
         </div>
         <div className="flex gap-2">
+          <button type="button" onClick={exportVisibleEvents} disabled={!events.length} className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 disabled:opacity-40" title="Export the events shown on this page as CSV"><Download size={14} />Export page</button>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold border rounded-lg transition-colors ${
@@ -215,7 +237,7 @@ const EventExplorer = () => {
 
             {/* IP address filter */}
             <div className="space-y-1">
-              <label className="text-[10px] font-semibold text-slate-9000 uppercase tracking-wider">Client IP Address</label>
+              <label className="text-[10px] font-semibold text-slate-9000 uppercase tracking-wider">Source IP Address</label>
               <input
                 type="text"
                 placeholder="E.g. 192.168.1.1"
@@ -238,6 +260,10 @@ const EventExplorer = () => {
           </div>
         )}
       </div>
+
+      {!loading && missingTimestampCount > 0 && <p className="event-data-note" role="status">
+        {missingTimestampCount} {missingTimestampCount === 1 ? 'event on this page has' : 'events on this page have'} no parseable event timestamp. The source may omit it or use an unsupported format. Upload time is different from event time, so it is not substituted here.
+      </p>}
 
       {/* Log Events Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-lg">
@@ -272,7 +298,7 @@ const EventExplorer = () => {
                     className="hover:bg-slate-100/25 text-slate-700 cursor-pointer transition-colors duration-100"
                   >
                     <td className="px-5 py-3 font-mono text-[10px] text-slate-9000">
-                      {formatUtcDateTime(event.timestamp)}
+                      {getEventTime(event)}
                     </td>
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-extrabold border ${getLevelBadgeClass(event.level)}`}>
@@ -359,7 +385,7 @@ const EventExplorer = () => {
                   <span className="text-[10px] text-slate-9000 font-bold uppercase tracking-wider flex items-center gap-1">
                     <Calendar size={11} /> Timestamp
                   </span>
-                  <p className="text-xs font-mono text-slate-700">{formatUtcDateTime(selectedEvent.timestamp)}</p>
+                  <p className="text-xs font-mono text-slate-700">{getEventTime(selectedEvent)}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-9000 font-bold uppercase tracking-wider flex items-center gap-1">
@@ -373,7 +399,7 @@ const EventExplorer = () => {
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-9000 font-bold uppercase tracking-wider flex items-center gap-1">
-                    <User size={11} /> Client IP
+                    <User size={11} /> Source IP
                   </span>
                   <p className="text-xs font-mono font-bold text-slate-800">{getSourceIp(selectedEvent)}</p>
                 </div>

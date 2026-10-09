@@ -221,7 +221,7 @@ const AIAssistant = () => {
   };
 
   return (
-    <div className="flex flex-col max-w-5xl mx-auto h-[calc(100vh-130px)] min-h-[600px]">
+    <div className="assistant-page flex flex-col max-w-5xl mx-auto h-[calc(100vh-130px)] min-h-[600px]">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex justify-between items-start mb-4 shrink-0">
         <div>

@@ -40,6 +40,8 @@ const Reports = () => {
   const [totalIncidents, setTotalIncidents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [reportType, setReportType] = useState('posture');
+  const [reportError, setReportError] = useState('');
 
   const generatedAt = new Date();
 
@@ -66,19 +68,23 @@ const Reports = () => {
   }, []);
 
   const handlePdfExport = async () => {
+    if (reportType === 'incident') {
+      window.print();
+      return;
+    }
     setExporting(true);
     try {
+      setReportError('');
       const response = await api.get('/api/reports/pdf', { responseType: 'blob' });
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `securesight-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+      link.download = `securesight-posture-report-${new Date().toISOString().slice(0, 10)}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to export PDF report', err);
-      // Fallback to print dialog if server PDF fails
-      window.print();
+      setReportError('Could not generate the PDF. Please retry.');
     } finally {
       setExporting(false);
     }
@@ -125,11 +131,15 @@ const Reports = () => {
         @media print {
           body * { visibility: hidden !important; }
           #printable-report, #printable-report * { visibility: visible !important; }
-          #printable-report { 
-            position: fixed; top: 0; left: 0; width: 100%; 
+          @page { size: A4; margin: 16mm; }
+          .reports-page { display: block !important; max-width: none !important; }
+          #printable-report {
+            position: static !important; width: 100% !important;
             background: white !important; color: black !important;
-            padding: 32px; font-family: 'Inter', sans-serif;
+            padding: 0 !important; font-family: 'Inter', system-ui, sans-serif;
           }
+          #printable-report thead { display: table-header-group; }
+          #printable-report tr { break-inside: avoid; }
           .no-print { display: none !important; }
           .print-border { border: 1px solid #e2e8f0 !important; }
           h1, h2, h3 { color: #1e293b !important; }
@@ -138,7 +148,8 @@ const Reports = () => {
         }
       `}</style>
 
-      <div className="space-y-6 max-w-7xl mx-auto">
+      <div className="reports-page space-y-6 max-w-7xl mx-auto">
+        {reportError && <div role="alert" className="overview-error">{reportError}</div>}
         {/* ── Page Header ──────────────────────────────────────────── */}
         <div className="flex justify-between items-start no-print">
           <div>
@@ -171,7 +182,7 @@ const Reports = () => {
               ) : (
                 <Download size={13} />
               )}
-              Export PDF
+              {reportType === 'incident' ? 'Print / Save PDF' : 'Export PDF'}
             </button>
 
             <button
@@ -191,6 +202,7 @@ const Reports = () => {
             {
               icon: FileBadge,
               title: 'Security Posture Report',
+              type: 'posture',
               desc: 'Full threat overview, IP analysis, severity breakdown',
               badge: 'Available',
               badgeClass: 'bg-success/10 text-success border-success/25',
@@ -198,13 +210,15 @@ const Reports = () => {
             {
               icon: Activity,
               title: 'Incident Response Log',
-              desc: 'Timeline of all alerts with triage actions taken',
+              type: 'incident',
+              desc: 'Latest alerts with current analyst triage status',
               badge: 'Available',
               badgeClass: 'bg-success/10 text-success border-success/25',
             },
             {
               icon: TrendingUp,
               title: 'Traffic Analysis Report',
+              type: null,
               desc: 'Event density, source services, and log volume trends',
               badge: 'Coming Soon',
               badgeClass: 'bg-slate-100 text-slate-9000 border-slate-300',
@@ -212,7 +226,7 @@ const Reports = () => {
           ].map((card, i) => {
             const Icon = card.icon;
             return (
-              <div key={i} className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col gap-3">
+              <button type="button" key={i} disabled={!card.type} aria-pressed={card.type === reportType} onClick={() => setReportType(card.type)} className={`report-template bg-white border border-slate-200 rounded-2xl p-5 flex flex-col gap-3 text-left ${card.type === reportType ? 'is-selected' : ''}`}>
                 <div className="flex items-center justify-between">
                   <div className="p-2 bg-primary/10 rounded-lg border border-primary/20">
                     <Icon size={16} className="text-primary" />
@@ -225,7 +239,7 @@ const Reports = () => {
                   <h3 className="text-sm font-semibold text-slate-800">{card.title}</h3>
                   <p className="text-[11px] text-slate-9000 mt-0.5">{card.desc}</p>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -243,10 +257,10 @@ const Reports = () => {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                    SecureSight AI — Security Posture Report
+                    SecureSight AI — {reportType === 'incident' ? 'Incident Response Log' : 'Security Posture Report'}
                   </h2>
                   <p className="text-xs text-slate-9000 mt-0.5">
-                    AI-Assisted SIEM Threat Analysis & Incident Summary
+                    {reportType === 'incident' ? 'Alert chronology and analyst triage status' : 'SIEM threat analysis and security summary'}
                   </p>
                 </div>
               </div>
@@ -288,6 +302,12 @@ const Reports = () => {
             </div>
           ) : (
             <>
+              {reportType === 'incident' && <div className="report-incident-summary bg-white border border-slate-200 rounded-2xl p-5 mt-4">
+                <h3 className="text-sm font-semibold text-slate-800">Response summary</h3>
+                <p className="text-xs text-slate-500 mt-1">Latest {alerts.length} incidents shown below. Status and evidence come from ingested log data.</p>
+                <div className="report-status-grid"><span><strong>{stats?.active_threats || 0}</strong>Active</span><span><strong>{alerts.filter((item) => item.status === 'resolved').length}</strong>Resolved in preview</span><span><strong>{alerts.filter((item) => item.status === 'false_positive').length}</strong>False positives in preview</span></div>
+              </div>}
+              {reportType === 'posture' && <>
               {/* Charts Row */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
                 {/* Severity Breakdown Bar Chart */}
@@ -368,12 +388,13 @@ const Reports = () => {
                 </div>
               </div>
 
+              </>}
               {/* Alert Incidents Table */}
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mt-4 print-white print-border">
                 <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Incident Registry</h3>
-                    <p className="text-[10px] text-slate-9000 mt-0.5">Latest detected security incidents</p>
+                    <h3 className="text-sm font-semibold text-slate-800">{reportType === 'incident' ? 'Triage timeline' : 'Incident Registry'}</h3>
+                    <p className="text-[10px] text-slate-9000 mt-0.5">Latest detected security incidents and current status</p>
                   </div>
                   <span className="text-[10px] px-2.5 py-1 bg-danger/10 border border-danger/25 text-danger rounded-full font-bold">
                     {totalIncidents} Total Incidents
@@ -412,7 +433,7 @@ const Reports = () => {
                                 {alert.severity}
                               </span>
                             </td>
-                            <td className="px-5 py-3 font-mono text-slate-700">{alert.source_ip || '—'}</td>
+                            <td className="px-5 py-3 font-mono text-slate-700">{alert.source_ip || 'Not captured'}</td>
                             <td className="px-5 py-3">
                               <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] uppercase font-bold ${
                                 alert.status === 'active'
@@ -433,7 +454,7 @@ const Reports = () => {
                     </table>
                     {totalIncidents > alerts.length && (
                       <div className="px-5 py-3 border-t border-slate-200 text-[10px] text-slate-9000 text-center">
-                        Showing {alerts.length} of {totalIncidents} incidents. Export PDF for full list.
+                        Showing {alerts.length} of {totalIncidents} incidents. PDF includes the latest 100 records.
                       </div>
                     )}
                   </div>
@@ -441,9 +462,9 @@ const Reports = () => {
               </div>
 
               {/* Top IPs section */}
-              {stats?.top_ips?.length > 0 && (
+              {reportType === 'posture' && stats?.top_ips?.length > 0 && (
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 mt-4 print-white print-border">
-                  <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Suspicious IP Addresses</h3>
+                  <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Suspicious Source IPs</h3>
                   <p className="text-[10px] text-slate-9000 mb-4">Remote hosts generating the highest alert volumes</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     {stats.top_ips.map((ipObj, index) => (

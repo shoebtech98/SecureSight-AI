@@ -21,9 +21,11 @@ $env:GEMINI_API_KEY = 'YOUR_GOOGLE_AI_STUDIO_KEY'
 $env:GEMINI_MODEL = 'gemini-3.1-flash-lite'
 $env:SECRET_KEY = 'A_LONG_RANDOM_VALUE'
 $env:ENV = 'production'
+$env:DB_SSLMODE = 'verify-full'
+$env:DB_SSLROOTCERT = 'C:/path/to/supabase-ca.crt'
 ```
 
-Copy the actual URI from Supabase; the example hostname is only a placeholder. If the password has special characters, URL-encode it. Generate a signing key with `venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"`. Do not put either secret in `frontend/` or a `VITE_` variable. Environment variables set in PowerShell last for that terminal session; configure them in your deployment host too.
+Copy the actual URI from Supabase; the example hostname is only a placeholder. If the password has special characters, URL-encode it. Download your project's CA certificate from Supabase **Database Settings > SSL Configuration** and set `DB_SSLROOTCERT` to its path. `verify-full` checks the certificate and database hostname; production startup rejects weaker PostgreSQL SSL modes. An explicit `sslmode` in `DATABASE_URL` takes precedence over `DB_SSLMODE`, so remove `sslmode=require` from the URI if present. Generate a signing key with `venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"`. Do not put either secret in `frontend/` or a `VITE_` variable. Environment variables set in PowerShell last for that terminal session; configure them in your deployment host too.
 
 ## 3. Copy existing SQLite data (optional)
 
@@ -38,9 +40,9 @@ The script creates the tables, refuses to copy into a database with existing row
 ## 4. Start and verify
 
 ```powershell
-venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
 Start the frontend with `npm run dev` inside `frontend/`. Register or log in, upload a sample log, then ask the assistant for a threat summary. A `503` response means Gemini is not configured, its quota is reached, or the service is unavailable. Verify Supabase rows in the Table Editor.
 
-SQLite remains the local default when `DATABASE_URL` is unset. Database files contain accounts, logs, alerts, and conversations and should not be committed.
+SQLite remains the local default when `DATABASE_URL` is unset. Database files contain accounts, logs, alerts, and conversations and should not be committed. On startup, the backend adds recovery-code and session-version columns to existing users. Existing users must sign in and save a new recovery code from Profile; previously issued login tokens require a new sign-in after this upgrade. A user who cannot sign in and has no recovery code needs administrator-assisted account recovery.
